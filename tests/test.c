@@ -5,28 +5,49 @@
 
 int main(int argc, char** argv){
 
-    Cymdata data = cym_create_cymdata(1000);
+    CymContext context;
 
-    cym_add_scalar(&data, "dummy", 15);
+    cym_load_context(&context, "save.bin");
 
-    cym_add_scalar(&data, "e", 2.7182);
+    size_t cymbol = cym_get_cymbol(&context, "data");
 
-    cym_add_scalar(&data, "pi", 3.14159);
+    cym_display_cymbol(&context, cymbol);
 
-    size_t symbol = cym_get_cymbol(&data, "dummy");
+    float o[] = {
+        0.5, 0, 5
+    };
 
-    size_t e = cym_get_cymbol(&data, "e");
+    cym_push_data(&context, "o", CYM_FLOAT32, 1, 3, o);
 
-    size_t pi = cym_get_cymbol(&data, "pi");
+    size_t oi = cym_get_cymbol(&context, "o");
 
-    cym_display_cymbol(&data, symbol);
+    cym_display_cymbol(&context, oi);
 
-    cym_display_cymbol(&data, e);
+    cym_destroy_context(&context);
 
-    cym_display_cymbol(&data, pi);
+    return 0;
+}
+/*
+    CymContext context = cym_create_context(1000);
+
+    float data[] = {
+        1, 0, 0,
+        0, 1, 0,
+        0, 0, 1
+    };
+
+    cym_push_data(&context, "data", CYM_FLOAT32, 3, 3, data);
+
+    size_t cymbol = cym_get_cymbol(&context, "data");
+
+    cym_display_cymbol(&context, cymbol);
+
+    cym_save_context(&context, "save.bin");
+
+    cym_destroy_context(&context);
 
 
     return 0;
 }
 
-
+*/

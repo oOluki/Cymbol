@@ -4,76 +4,117 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <stdint.h>
+#include <inttypes.h>
+
+enum CymMemBlock{
+
+    CYM_MEMBLOCK_SYMBOLS = 0x53594d,
+    CYM_MEMBLOCK_DATA    = 44415441
+
+};
+
+typedef enum CymAtomType{
+
+    CYM_ATOMTYPENONE = 0,
+
+    CYM_INT8,
+    CYM_INT16,
+    CYM_INT32,
+    CYM_INT64,
+
+    CYM_UINT8,
+    CYM_UINT16,
+    CYM_UINT32,
+    CYM_UINT64,
+
+    CYM_FLOAT32,
+    CYM_FLOAT64
+
+} CymAtomType;
 
 typedef enum CymbolType{
 
-    CYM_NONE = 0,
+    CYM_CYMBOLTYPENONE = 0,
+
     CYM_SCALAR,
     CYM_VECTOR,
-    CYM_MATRICE
+    CYM_MATRICE,
 
 } CymbolType;
 
-typedef struct Cym_stream{
+typedef struct CymbolMetaData{
+
+    uint8_t     atom_type;
+    uint8_t     type;
+    uint64_t    size1;
+    uint64_t    size2;
+
+} CymbolMetaData;
+
+
+typedef struct CymStream{
     // data buffer
-    char*  data;
+    char*    data;
     // size of the stream in bytes
-    size_t   size;
+    uint64_t size;
     // capacity of the stream in bytes
-    size_t   capacity;
-} Cym_stream;
+    uint64_t capacity;
+} CymStream;
 
-typedef struct Cymdata {
+typedef struct CymContext {
 
-    Cym_stream symbols;
-    Cym_stream data;
+    uint64_t  flags;
+    uint8_t   float_display_precision;
 
-} Cymdata;
+    uint64_t  sizeof_extra_data;
+    void*     extra_data;
+
+    CymStream symbols;
+    CymStream data;
+
+} CymContext;
 
 typedef struct Cymbol{
-    size_t str;
-    CymbolType type;
-    union{
-        size_t as_index;
-        double as_float;
-    } data;
+    uint64_t str;
+    uint64_t data;
 } Cymbol;
 
-Cymdata cym_create_cymdata(size_t init_cap){
-    Cymdata output;
+CymContext cym_create_context(uint64_t init_cap){
+    CymContext output;
     output.data.capacity = init_cap + 1;
     output.data.size = 1;
-    output.data.data = (char*)malloc(init_cap);
+    output.data.data = (char*)malloc(init_cap + 1);
     output.symbols.capacity = init_cap + 1;
     output.symbols.size = sizeof(Cymbol);
-    output.symbols.data = (char*)malloc(init_cap);
+    output.symbols.data = (char*)malloc(init_cap + sizeof(Cymbol));
     return output;
 }
 
-void cym_destroy_cymdata(Cymdata* data){
-    free(data->data.data);
-    free(data->symbols.data);
-    data->data.capacity = 0;
-    data->data.size = 1;
-    data->data.data = NULL;
-    data->symbols.capacity = 0;
-    data->symbols.size = 1;
-    data->symbols.data = NULL;
+void cym_destroy_context(CymContext* context){
+    if(context->data.data) free(context->data.data);
+    if(context->symbols.data) free(context->symbols.data);
+    context->data.capacity = 0;
+    context->data.size = 0;
+    context->data.data = NULL;
+    context->symbols.capacity = 0;
+    context->symbols.size = 0;
+    context->symbols.data = NULL;
 }
 
 static inline int cym_compare_str(const char* str1, const char* str2){
 
-    size_t i = 0;
+    uint64_t i = 0;
     for( ; str1[i]; i+=1){
         if(str1[i] != str2[i]) return 0;
     }
     return !str2[i];
 }
 
-void cym_stream(Cym_stream* stream, const void* data, size_t size){
+void cym_stream(CymStream* stream, const void* data, uint64_t size){
     if(size + stream->size > stream->capacity){
         char* old_data = stream->data;
-        stream->capacity *= 1 + (size_t)((size + stream->size) / stream->capacity);
+        stream->capacity *= 1 + (uint64_t)((size + stream->size) / stream->capacity);
         stream->data = (char*)malloc(stream->capacity);
         memcpy(stream->data, old_data, stream->size);
         free(old_data);
@@ -82,25 +123,84 @@ void cym_stream(Cym_stream* stream, const void* data, size_t size){
     stream->size += size;
 }
 
+void cym_stream_str(CymStream* stream, const char* str){
+    uint64_t size = 0;
+    for(; str[size]; size+=1);
+    cym_stream(stream, str, size + 1);
+}
+
 #define CYM_STRM_GET(STREAM, TYPE, INDEX) *(TYPE*)(STREAM.data + INDEX * sizeof(TYPE))
 
 
-void cym_add_scalar(Cymdata* data, const char* name, double value){
-    Cymbol cymbol;
-    cymbol.str = data->data.size;
-    cymbol.type = CYM_SCALAR;
-    cymbol.data.as_float = value;
-    cym_stream(&data->symbols, &cymbol, sizeof(cymbol));
-    size_t str_size = 0;
-    for (; name[str_size]; str_size += 1);
-    cym_stream(&data->data, name, str_size + 1);
+static inline uint64_t cym_get_atom_size(uint8_t atom_type){
+    switch (atom_type)
+    {
+    case CYM_INT8:
+    case CYM_UINT8:
+        return 1;
+    case CYM_INT16:
+    case CYM_UINT16:
+        return 2;
+    case CYM_INT32:
+    case CYM_UINT32:
+    case CYM_FLOAT32:
+        return 4;
+    case CYM_INT64:
+    case CYM_UINT64:
+    case CYM_FLOAT64:
+        return 8;
+    
+    default:
+        break;
+    }
+    return 0;
 }
 
-size_t cym_get_cymbol(Cymdata* data, const char* name){
+uint64_t cym_push_data(CymContext* context, const char* name, CymAtomType atom_type, uint64_t size1, uint64_t size2, const void* data){
+    if(size1 * size2 == 0){
+        return 0;
+    }
 
-    for(size_t i = 1; i < data->symbols.size / sizeof(Cymbol); i+=1){
-        const Cymbol cymbol = CYM_STRM_GET(data->symbols, Cymbol, i);
-        if(cym_compare_str(name, data->data.data + cymbol.str)){
+    Cymbol cymbol;
+    CymbolMetaData meta_data;
+    meta_data.atom_type = atom_type;
+    meta_data.size1 = size1;
+    meta_data.size2 = size2;
+
+    if(size1 * size2 == 1){ // size1 == size2 == 1
+        meta_data.type = CYM_SCALAR;
+    } else if(size1 == 1 || size2 == 1){
+        meta_data.type = CYM_VECTOR;
+    } else{
+        meta_data.type = CYM_MATRICE;
+    }
+
+    cymbol.str = context->data.size;
+    cym_stream_str(&context->data, name);
+    cymbol.data = context->data.size;
+
+    cym_stream(&context->symbols, &cymbol, sizeof(Cymbol));
+
+    uint64_t sizeof_metadata = sizeof(meta_data);
+
+    cym_stream(&context->data, &sizeof_metadata, sizeof(uint64_t));
+
+    cym_stream(&context->data, &meta_data, sizeof(meta_data));
+    
+    cym_stream(&context->data, data, size1 * size2 * cym_get_atom_size(atom_type));
+
+    return context->symbols.size - 1;
+}
+
+
+uint64_t cym_get_cymbol(CymContext* context, const char* name){
+
+    const uint64_t range = context->symbols.size / sizeof(Cymbol);
+
+    for(uint64_t i = 1; i < range; i+=1){
+        const Cymbol cymbol = *(Cymbol*)(context->symbols.data + i * sizeof(Cymbol));
+        
+        if(cym_compare_str(name, context->data.data + cymbol.str)){
             return i;
         }
     }
@@ -108,21 +208,213 @@ size_t cym_get_cymbol(Cymdata* data, const char* name){
     return 0;
 }
 
-void cym_display_cymbol(Cymdata* data, size_t cymbol){
-    const Cymbol _cymbol = CYM_STRM_GET(data->symbols, Cymbol, cymbol);
-    const char* name = (char*)(data->data.data + _cymbol.str);
-    if(_cymbol.type == CYM_SCALAR){
-        printf(
-            "\\==X(Cymbol)X==\\\n\n"
-            "name: %s\ntype: scalar\ndata: %f\n\n",
-            name, _cymbol.data.as_float
-        );
-    } else{
-        printf(
-            "\\==X(Cymbol)X==\\\n\n"
-            "name: %s\ntype: scalar\ndata: NONE\n", name
-        );
+// returns a pointer to the raw data of the cymbol with id cymbolid
+// and writes the meta data to the passed meta_data pointer (pass NULL to ignore meta data).
+// Keep in mind that this pointer is only valid untill the context's
+// data stream has its capacity resized
+void* cym_get_cymbol_data(CymContext* context, CymbolMetaData* meta_data, uint64_t cymbolid){
+    Cymbol cymbol = CYM_STRM_GET(context->symbols, Cymbol, cymbolid);
+
+    char* data = context->data.data + cymbol.data;
+
+    const uint64_t sizeof_metadata = *(uint64_t*)data;
+    data += sizeof(uint64_t);
+    if(meta_data) *meta_data = *(CymbolMetaData*)data;
+
+    // skipping meta data
+    data += sizeof_metadata;
+
+    return data;
+}
+
+void cym_transfer_data(CymContext* context, uint64_t cymbolid, CymbolMetaData* meta_data, void* data){
+    Cymbol cymbol = CYM_STRM_GET(context->symbols, Cymbol, cymbolid);
+
+    char* _data = context->data.data + cymbol.data + sizeof(uint64_t);
+    if(meta_data) *meta_data = *(CymbolMetaData*)_data;
+    if(data == NULL) return;
+    
+
+    uint64_t sizeof_atom = cym_get_atom_size(meta_data->atom_type);
+
+    memcpy(data, _data, sizeof_atom * meta_data->size1 * meta_data->size2);
+}
+
+void cym_display_cymbol(CymContext* context, uint64_t cymbolid){
+
+    if(cymbolid == 0 || cymbolid > context->symbols.size / sizeof(Cymbol)){
+        printf("\nCymbol Not Found\n");
+        return;
     }
+
+    const Cymbol cymbol = CYM_STRM_GET(context->symbols, Cymbol, cymbolid);
+
+    printf("(Cymbol)\n\tname = %s\n", context->data.data + cymbol.str);
+    
+    CymbolMetaData meta_data;
+    void* data = cym_get_cymbol_data(context, &meta_data, cymbolid);
+
+    #define CYM_INTERNAL_PRINTEX(ATOM_TYPE, FORMAT, SIZE1, SIZE2, DATA)\
+    printf(\
+        "\tatom type: " #ATOM_TYPE "\n"\
+        "\tsize = (%zu, %zu)\n\t",\
+        SIZE1, SIZE2\
+    );\
+    for(uint64_t n = 0; n < SIZE1; n+=1){\
+        for(uint64_t m = 0; m < SIZE2; m+=1){\
+            printf("%" FORMAT ", ", ((ATOM_TYPE*)DATA)[n * SIZE2 + m]);\
+        } printf("\n\t");\
+    }
+    
+
+    switch (meta_data.atom_type)
+    {
+    case CYM_INT8:
+        CYM_INTERNAL_PRINTEX(int8_t, PRId8, meta_data.size1, meta_data.size2, data);
+        break;
+    case CYM_INT16:
+        CYM_INTERNAL_PRINTEX(int16_t, PRId16, meta_data.size1, meta_data.size2, data);
+        break;
+    case CYM_INT32:
+        CYM_INTERNAL_PRINTEX(int32_t, PRId32, meta_data.size1, meta_data.size2, data);
+        break;
+    case CYM_INT64:
+        CYM_INTERNAL_PRINTEX(int64_t, PRId64, meta_data.size1, meta_data.size2, data);
+        break;
+
+    case CYM_UINT8:
+        CYM_INTERNAL_PRINTEX(uint8_t, PRIu8, meta_data.size1, meta_data.size2, data);
+        break;
+    case CYM_UINT16:
+        CYM_INTERNAL_PRINTEX(uint16_t, PRIu16, meta_data.size1, meta_data.size2, data);
+        break;
+    case CYM_UINT32:
+        CYM_INTERNAL_PRINTEX(uint32_t, PRIu32, meta_data.size1, meta_data.size2, data);
+        break;
+    case CYM_UINT64:
+        CYM_INTERNAL_PRINTEX(uint64_t, PRIu64, meta_data.size1, meta_data.size2, data);
+        break;
+    
+    case CYM_FLOAT32:
+        CYM_INTERNAL_PRINTEX(float, "f", meta_data.size1, meta_data.size2, data);
+        break;
+    case CYM_FLOAT64:
+        CYM_INTERNAL_PRINTEX(double, "f", meta_data.size1, meta_data.size2, data);
+        break;
+    
+    default:
+        break;
+    }
+
+    #undef CYM_INTERNAL_PRINTEX
+
+    printf("\n");
+}
+
+int cym_save_context(CymContext* context, const char* path){
+
+    FILE* file = fopen(path, "wb");
+
+    if(!file){
+        goto defer;
+    }
+
+    if(!fputs("$CYMBOL", file)){
+        goto defer;
+    }
+
+    if(!fputs("SYM", file) || fwrite(&context->symbols.size, sizeof(context->symbols.size), 1, file) != 1){
+        goto defer;
+    }
+
+    const uint64_t range = context->symbols.size / sizeof(Cymbol);
+
+    for(uint64_t i = 0; i < range; i+=1){
+        const Cymbol cymbol = *(Cymbol*)(context->symbols.data + i * sizeof(Cymbol));
+        
+        if(fwrite(&cymbol.str, sizeof(cymbol.str), 1, file) != 1){
+            goto defer;
+        }
+    }
+
+    if(!fputs("DATA", file) || fwrite(&context->data.size, sizeof(context->data.size), 1, file) != 1 || fwrite(context->data.data, context->data.size, 1, file) != 1){
+        goto defer;
+    }
+    
+    fclose(file);
+
+    return 0;
+
+    defer:
+        if(file) fclose(file);
+        fprintf(stderr, "[ERROR] Cymbol: Error While Saving Context To '%s'\n", path);
+        return -1;
+}
+
+int cym_load_context(CymContext* context, const char* path){
+
+    cym_destroy_context(context);
+
+    FILE* file = fopen(path, "rb");
+
+    if(!file){
+        goto defer;
+    }
+
+    char buffer[10] = {
+        '\0', '\0', '\0', '\0', '\0',
+        '\0', '\0', '\0', '\0', '\0'
+    };
+
+    if(!fgets(buffer, 8, file) || !cym_compare_str(buffer, "$CYMBOL")){
+        goto defer;
+    }
+
+    if(!fgets(buffer, 4, file) || !cym_compare_str(buffer, "SYM")){
+        goto defer;
+    } memset(buffer, 0, 10);
+    if(1 != fread(&context->symbols.capacity, 8, 1, file)){
+        goto defer;
+    }
+
+    context->symbols.data = (char*)malloc(context->symbols.capacity);
+    context->symbols.size = context->symbols.capacity;
+
+    if(fread(context->symbols.data, context->symbols.capacity / 2, 1, file) != 1) goto defer;
+
+    if(!fgets(buffer, 5, file) || !cym_compare_str(buffer, "DATA")){
+        goto defer;
+    } memset(buffer, 0, 10);
+    if(1 != fread(&context->data.capacity, 8, 1, file)){
+        goto defer;
+    }
+
+    context->data.data = (char*)malloc(context->data.capacity);
+    context->data.size = context->data.capacity;
+
+    if(fread(context->data.data, context->data.capacity, 1, file) != 1) goto defer;
+
+    for(uint64_t i = 0; i < context->symbols.size / sizeof(Cymbol); i+=1){
+
+        const uint64_t n = (context->symbols.size / sizeof(Cymbol)) - i - 1;
+        Cymbol* cymbol = (Cymbol*)(context->symbols.data + n * sizeof(Cymbol));
+        
+        cymbol->str = *(uint64_t*)(context->symbols.data + n * sizeof(uint64_t));
+        for(cymbol->data = cymbol->str; context->data.data[cymbol->data]; cymbol->data+=1);
+        cymbol->data += 1;
+
+    }
+
+    fclose(file);
+
+    return 0;
+
+    defer:
+        cym_destroy_context(context);
+        if(file) fclose(file);
+        fprintf(stderr, "[ERROR] Cymbol: Error While Loading Context From '%s'\n", path);
+        return -1;
+
 }
 
 
