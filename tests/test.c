@@ -1,53 +1,35 @@
 #include "../include/cymbol.h"
+#include "../include/cymath.h"
 #include <stdlib.h>
 #include <stdio.h>
 
 
 int main(int argc, char** argv){
 
-    CymContext context;
+    CYM_FLOAT
 
-    cym_load_context(&context, "save.bin");
+    y[] = {1, 2, 3, 4, 5, 9},
 
-    size_t cymbol = cym_get_cymbol(&context, "data");
+    x[] = {1, 2, 3, 4, 5, 9},
 
-    cym_display_cymbol(&context, cymbol);
+    dy[] = {0.001, 0.001, 0.001, 0.001, 0.001, 0.001},
 
-    float o[] = {
-        0.5, 0, 5
+    dx[] = {0.001, 0.001, 0.001, 0.001, 0.001, 0.001},
+
+    a, b, r, da, db;
+
+    const unsigned int n = sizeof(x) / sizeof(CYM_FLOAT);
+
+    for(size_t i = 0; i < n; i++){
+        y[i] = 1/3.0* x[i];
+    }
+
+    if(cym_rlinear_fit(x, y, dx, dy, n, &a, &b, &da, &db, &r)){
+        printf("fit failed\n");
     };
 
-    cym_push_data(&context, "o", CYM_FLOAT32, 1, 3, o);
-
-    size_t oi = cym_get_cymbol(&context, "o");
-
-    cym_display_cymbol(&context, oi);
-
-    cym_destroy_context(&context);
-
-    return 0;
-}
-/*
-    CymContext context = cym_create_context(1000);
-
-    float data[] = {
-        1, 0, 0,
-        0, 1, 0,
-        0, 0, 1
-    };
-
-    cym_push_data(&context, "data", CYM_FLOAT32, 3, 3, data);
-
-    size_t cymbol = cym_get_cymbol(&context, "data");
-
-    cym_display_cymbol(&context, cymbol);
-
-    cym_save_context(&context, "save.bin");
-
-    cym_destroy_context(&context);
+    printf("(%f pm %f), (%f pm %f), %f\n", a, da, b, db, r);
 
 
     return 0;
 }
-
-*/
