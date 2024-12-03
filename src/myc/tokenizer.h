@@ -37,8 +37,6 @@ unsigned int mc_tokenize(Mc_token_t** token_buffer_pointer, unsigned int buff_po
         Mc_stream_t stream = meta->streamstring;
         Mc_stream_t tokens = meta->tokn_strm_bff;
 
-        const char* strbegin_1 = stream.data; // gotta store this pointer for later correcting the
-
         //printf(
         //    "meta:\n"
         //    "\tstream: size = %zu, cap = %zu\n"
@@ -50,6 +48,7 @@ unsigned int mc_tokenize(Mc_token_t** token_buffer_pointer, unsigned int buff_po
 
         if(buff_pos * sizeof(Mc_token_t) + sizeof(Mc_tkn_metadata_t) < tokens.size){
             stream.size = token_buffer[buff_pos];
+            tokens.size = buff_pos + sizeof(Mc_tkn_metadata_t);
         }
 
         const char* ignored = __ignored? __ignored : " \t\n";               // avoiding null dereferencing
