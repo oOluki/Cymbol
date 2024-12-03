@@ -10,16 +10,19 @@ extern "C" {
 #endif
 
 #ifndef CYM_ABS
-#define CYM_ABS(X) (((X) > 0)? X : -X)
+#define CYM_ABS(X) (((X) > 0)? (X) : -(X))
 #endif
 
 #ifndef CYM_FLOAT
 #define CYM_FLOAT double
 #endif
 
+static inline CYM_FLOAT cym_absf(CYM_FLOAT x){ return x > 0? x : -x; }
+
 
 // função inverso da raiz quadrada (Quake III) modificada para melhor precisão e funcionalidade multiplataforma
-double cym_Q_rsqrt(double number) {
+// para double
+double cym_Q_rsqrt_d(double number) {
     const double x2 = number * 0.5;
     const double threehalfs = 1.5;
 
@@ -39,6 +42,7 @@ double cym_Q_rsqrt(double number) {
     return conv.d;
 }
 
+#define cym_sqrt(VALUE) (1.0 / cym_Q_rsqrt_d(VALUE))
 
 
 // if the norm of vector is 0 the ouput vector will be filled with 0
@@ -56,7 +60,7 @@ CYM_FLOAT cym_normalize_vec(const CYM_FLOAT* vector, unsigned int size, CYM_FLOA
         return 0.0f;
     }
 
-    const CYM_FLOAT rnorm = cym_Q_rsqrt(norm2);
+    const CYM_FLOAT rnorm = cym_Q_rsqrt_d(norm2);
 
     for(unsigned int i = 0; i < size; i+=1){
         ouput[i] = vector[i] * rnorm;
@@ -66,9 +70,10 @@ CYM_FLOAT cym_normalize_vec(const CYM_FLOAT* vector, unsigned int size, CYM_FLOA
 
 }
 
+// [WARNING] always pass an output different than the input or this will break
 void cym_mat_transpose(const CYM_FLOAT* input, unsigned int sizex, unsigned int sizey, CYM_FLOAT* output){
     for(unsigned int i = 0; i < sizey; i+=1){
-        for(unsigned int j = 0 ; j < sizex; j+=1){
+        for(unsigned int j = 0; j < sizex; j+=1){
             output[j * sizey + i] = input[i * sizex + j];
         }
     }
@@ -84,7 +89,7 @@ void cym_mat_scale(CYM_FLOAT scalar, const CYM_FLOAT* mat, unsigned int sizex, u
 
 void cym_mat_sum(const CYM_FLOAT* mat1, const CYM_FLOAT* mat2, unsigned int sizex, unsigned int sizey, CYM_FLOAT* output){
     for(unsigned int i = 0; i < sizey; i+=1){
-        for (unsigned int j = 0; i < sizex; j+=1){
+        for (unsigned int j = 0; j < sizex; j+=1){
             output[i * sizex + j] = mat1[i * sizex + j] + mat2[i * sizex + j];
         }
     }
@@ -201,7 +206,7 @@ int cym_make_unitary(const CYM_FLOAT* input, unsigned int size, CYM_FLOAT* outpu
         return 1;
     }
 
-    rnorm = cym_Q_rsqrt(norm2);
+    rnorm = cym_Q_rsqrt_d(norm2);
 
     for(unsigned int i = 0; i < size; i+=1){
 
@@ -231,7 +236,7 @@ int cym_make_unitary(const CYM_FLOAT* input, unsigned int size, CYM_FLOAT* outpu
 
             norm2 = output[j * (size + 1)] * output[j * (size + 1)] - dummy;
 
-            rnorm = cym_Q_rsqrt(norm2);
+            rnorm = cym_Q_rsqrt_d(norm2);
 
             for(unsigned int i = 0; i < j + 1; i+=1){
                 output[i * size + j] *= rnorm;
@@ -298,6 +303,31 @@ void cym_print_mat(const CYM_FLOAT* mat, unsigned int sizex, unsigned int sizey)
 
 // X=======================X (DATA ANALYSIS) X==================X
 
+// performs a polynomial interolation and outputs the coefficients to output in order of smallest power coefficient to biggest
+// \returns 0 on success, 1 otherwise
+int cym_interpol(const CYM_FLOAT* x, const CYM_FLOAT* y, size_t number_of_points, CYM_FLOAT* output){
+
+    CYM_FLOAT* a = (CYM_FLOAT*)malloc(number_of_points * number_of_points * sizeof(CYM_FLOAT) + number_of_points * sizeof(CYM_FLOAT));
+
+    CYM_FLOAT* y_ = a + number_of_points * number_of_points;
+
+    memcpy(y_, y, number_of_points * sizeof(CYM_FLOAT));
+
+    for(size_t i = 0; i < number_of_points; i+=1){
+        a[i * number_of_points] = 1.0;
+        const CYM_FLOAT xn = x[i];
+        for(size_t j = 1; j < number_of_points; j+=1){
+            a[i * number_of_points + j] = a[i * number_of_points + j - 1] * xn;
+        }
+    }
+
+    cym_solve_gauss(a, y_, number_of_points, output);
+
+    free(a);
+
+    return 0;
+}
+
 
 // performs a linear fit of the form y = A*x + B
 void cym_linear_fit(const CYM_FLOAT* x, const CYM_FLOAT* y, size_t number_of_points, CYM_FLOAT* a, CYM_FLOAT* b, CYM_FLOAT* r){
@@ -321,9 +351,7 @@ void cym_linear_fit(const CYM_FLOAT* x, const CYM_FLOAT* y, size_t number_of_poi
 
     *a = ar_numerador / a_denominador;
     *b = (sumy - (*a) * sumx) / number_of_points;
-    *r = ar_numerador * cym_Q_rsqrt((number_of_points * sumy2 - sumy * sumy) * a_denominador);
-    
-
+    *r = ar_numerador * cym_Q_rsqrt_d((number_of_points * sumy2 - sumy * sumy) * a_denominador);
 }
 
 // performs a wheighted linear fit of the form y = A*x + B
@@ -344,20 +372,20 @@ int cym_rlinear_fit(const CYM_FLOAT* x, const CYM_FLOAT* y, const CYM_FLOAT* dx,
         sumyx += y[i] * x[i];
     }
 
-    const CYM_FLOAT ar_numerador  = (number_of_points * sumyx - sumx * sumy);
+    const CYM_FLOAT a_numerador  = (number_of_points * sumyx - sumx * sumy);
     const CYM_FLOAT a_denominador = (number_of_points * sumx2 - sumx * sumx);
 
-    CYM_FLOAT av = ar_numerador / a_denominador;
-    CYM_FLOAT bv = (sumy - (*a) * sumx) / number_of_points;
-    *r           = ar_numerador * cym_Q_rsqrt((number_of_points * sumy2 - sumy * sumy) * a_denominador);
+    CYM_FLOAT av = a_numerador / a_denominador;
+    CYM_FLOAT bv = (sumy - av * sumx) / number_of_points;
+    *r           = a_numerador * cym_Q_rsqrt_d((number_of_points * sumy2 - sumy * sumy) * a_denominador);
 
-    CYM_FLOAT last_b = 0;
+    CYM_FLOAT last_b = bv + 1;
     CYM_FLOAT dav    = 0;
     CYM_FLOAT dbv    = 0;
 
     int iterations = 0;
 
-    while (CYM_ABS(bv - last_b) > dbv && iterations++ < 1000){
+    while(CYM_ABS(bv - last_b) > dbv && iterations++ < 1000){
         last_b = bv;
 
         CYM_FLOAT sumw   = 0;
@@ -378,14 +406,12 @@ int cym_rlinear_fit(const CYM_FLOAT* x, const CYM_FLOAT* y, const CYM_FLOAT* dx,
 
         }
 
-        const CYM_FLOAT val = sumw * sumwx2 - sumwx * sumx;
+        const CYM_FLOAT val = sumw * sumwx2 - sumwx * sumwx;
 
         av  = (sumw * sumwxy - sumwx * sumwy) / val;
         bv  = (sumwy - sumwx * av) / sumw;
-        dav = 1.0 / cym_Q_rsqrt(sumw / val);
-        dbv = 1.0 / cym_Q_rsqrt(sumwx2 / val);
-        
-
+        dav = 1.0 / cym_Q_rsqrt_d(sumw / val);
+        dbv = 1.0 / cym_Q_rsqrt_d(sumwx2 / val);
     }
     
     if(iterations > 1000){

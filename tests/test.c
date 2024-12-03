@@ -6,29 +6,8 @@
 
 int main(int argc, char** argv){
 
-    CYM_FLOAT
 
-    y[] = {1, 2, 3, 4, 5, 9},
-
-    x[] = {1, 2, 3, 4, 5, 9},
-
-    dy[] = {0.001, 0.001, 0.001, 0.001, 0.001, 0.001},
-
-    dx[] = {0.001, 0.001, 0.001, 0.001, 0.001, 0.001},
-
-    a, b, r, da, db;
-
-    const unsigned int n = sizeof(x) / sizeof(CYM_FLOAT);
-
-    for(size_t i = 0; i < n; i++){
-        y[i] = 1/3.0* x[i];
-    }
-
-    if(cym_rlinear_fit(x, y, dx, dy, n, &a, &b, &da, &db, &r)){
-        printf("fit failed\n");
-    };
-
-    printf("(%f pm %f), (%f pm %f), %f\n", a, da, b, db, r);
+    CYM_FLOAT64 x[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
 
 
     return 0;

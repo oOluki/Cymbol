@@ -208,11 +208,10 @@ uint64_t cym_push_data(CymContext* context, const char* name, CymAtomType atom_t
             memcpy(context->data.data, old_data, context->data.size);
             free(old_data);
         }
-        memcpy(context->data.data + context->data.size, data, memsize);
         context->data.size += memsize;
     }
 
-    return context->symbols.size - 1;
+    return (context->symbols.size / sizeof(Cymbol)) - 1;
 }
 
 // you can't delete the 0th cymbol, just so you know
@@ -296,11 +295,13 @@ void cym_transfer_data(CymContext* context, uint64_t cymbolid, CymbolMetaData* m
 void cym_apply_fun(CymContext* context, uint64_t cymbolid, void* function, void* output){
     Cymbol cymbol = CYM_STRM_GET(context->symbols, Cymbol, cymbolid);
 
-    const char* data = context->data.data + cymbol.data + sizeof(uint64_t);
+    char* data = context->data.data + cymbol.data + sizeof(uint64_t);
 
     const CymbolMetaData meta_data = *(CymbolMetaData*)data;
 
     data += sizeof(CymbolMetaData);
+
+    if(output == NULL) output = data;
 
     #define CYM_INTERNAL_APPLY_FUN(TYPE, SIZE)\
         for(size_t i = 0; i < SIZE; i+=1){\

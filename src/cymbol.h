@@ -166,6 +166,7 @@ static inline uint64_t cym_get_atom_size(uint8_t atom_type){
 
 // returns the id of the newly allocated cymbol
 // if size1 * size2 == 0 nothing will happen
+// if data == NULL the memory will be allocated but not set
 uint64_t cym_push_data(CymContext* context, const char* name, CymAtomType atom_type, uint64_t size1, uint64_t size2, const void* data){
     if(size1 * size2 == 0){
         return 0;
@@ -197,9 +198,20 @@ uint64_t cym_push_data(CymContext* context, const char* name, CymAtomType atom_t
 
     cym_stream(&context->data, &meta_data, sizeof(meta_data));
     
-    cym_stream(&context->data, data, size1 * size2 * cym_get_atom_size(atom_type));
+    if(data) cym_stream(&context->data, data, size1 * size2 * cym_get_atom_size(atom_type));
+    else{
+        const size_t memsize = size1 * size2 * cym_get_atom_size(atom_type);
+        if(context->data.size + memsize > context->data.capacity){
+            char* old_data = context->data.data;
+            context->data.capacity *= 1 + (uint64_t)((memsize + context->data.size) / context->data.capacity);
+            context->data.data = (char*)malloc(context->data.capacity);
+            memcpy(context->data.data, old_data, context->data.size);
+            free(old_data);
+        }
+        context->data.size += memsize;
+    }
 
-    return context->symbols.size - 1;
+    return (context->symbols.size / sizeof(Cymbol)) - 1;
 }
 
 // you can't delete the 0th cymbol, just so you know
@@ -247,12 +259,14 @@ uint64_t cym_get_cymbol(CymContext* context, const char* name){
     return 0;
 }
 
-// returns a pointer to the raw data of the cymbol with id cymbolid
-// and writes the meta data to the passed meta_data pointer (pass NULL to ignore meta data).
-// Keep in mind that this pointer is only valid untill the context's
-// data stream has its capacity resized
-void* cym_get_cymbol_data(CymContext* context, CymbolMetaData* meta_data, uint64_t cymbolid){
+// Keep in mind that the pointers are only valid untill the context's data stream has its capacity resized
+// \returns a pointer to the raw data of the cymbol with id cymbolid
+// \param meta_data a pointer to write the meta data to, pass NULL to ignore this
+// \param name a pointer to the C_string to write the cymbol's name, pass NULL to ignore this
+void* cym_get_cymbol_data(CymContext* context, CymbolMetaData* meta_data, const char** name, uint64_t cymbolid){
     Cymbol cymbol = CYM_STRM_GET(context->symbols, Cymbol, cymbolid);
+
+    if(name) *name = context->data.data + cymbol.str;
 
     char* data = context->data.data + cymbol.data;
 
@@ -281,11 +295,13 @@ void cym_transfer_data(CymContext* context, uint64_t cymbolid, CymbolMetaData* m
 void cym_apply_fun(CymContext* context, uint64_t cymbolid, void* function, void* output){
     Cymbol cymbol = CYM_STRM_GET(context->symbols, Cymbol, cymbolid);
 
-    const char* data = context->data.data + cymbol.data + sizeof(uint64_t);
+    char* data = context->data.data + cymbol.data + sizeof(uint64_t);
 
     const CymbolMetaData meta_data = *(CymbolMetaData*)data;
 
     data += sizeof(CymbolMetaData);
+
+    if(output == NULL) output = data;
 
     #define CYM_INTERNAL_APPLY_FUN(TYPE, SIZE)\
         for(size_t i = 0; i < SIZE; i+=1){\
@@ -348,7 +364,7 @@ void cym_display_cymbol(CymContext* context, uint64_t cymbolid){
     printf("(Cymbol)\n\tname = %s\n", context->data.data + cymbol.str);
     
     CymbolMetaData meta_data;
-    void* data = cym_get_cymbol_data(context, &meta_data, cymbolid);
+    void* data = cym_get_cymbol_data(context, &meta_data, NULL, cymbolid);
 
     #define CYM_INTERNAL_PRINTEX(ATOM_TYPE, FORMAT, SIZE1, SIZE2, DATA)\
     printf(\
@@ -405,6 +421,21 @@ void cym_display_cymbol(CymContext* context, uint64_t cymbolid){
     #undef CYM_INTERNAL_PRINTEX
 
     printf("\n");
+}
+
+void cym_merge_contexts(CymContext* dest, CymContext* src){
+    
+    const size_t src_cymcount = src->symbols.size / sizeof(Cymbol);
+
+    for(size_t i = 1; i < src_cymcount; i+=1){
+        const char* src_str;
+        CymbolMetaData src_meta;
+
+        void* srcdata = cym_get_cymbol_data(src, &src_meta, &src_str, i);
+
+        const uint64_t destcym = cym_push_data(dest, src_str, src_meta.atom_type, src_meta.size1, src_meta.size2, srcdata);
+    }
+
 }
 
 int cym_save_context(CymContext* context, const char* path){

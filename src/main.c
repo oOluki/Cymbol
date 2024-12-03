@@ -2,13 +2,6 @@
 #include "cymath.h"
 #include "parser.h"
 
-#if defined(__linux__) || defined(APPLE)
-    #define CLEAR_VIEW system("clear");
-#elif defined(_WIN32)
-    #define CLEAR_VIEW system("cls");
-#else
-    #define CLEAR_VIEW printf("\n\n\n\n\n\n\n\n\n\n\n");
-#endif
 
 CymContext* contexts = NULL;
 
@@ -65,14 +58,12 @@ int get_literal(const char* str){
 }
 
 // returns -1 to request exit, an error code or 0 on success
-int perform_command(const UserPrompt prompt){
-
-    int reg = 0;
+int perform_command(UserPrompt prompt){
 
     switch (prompt.type)
     {
     case USRPROMPT_EXIT: return -1;
-    case USRPROMPT_CLEARVIEW: CLEAR_VIEW; break;
+    case USRPROMPT_ERROR: return 1;
     case USRPROMPT_CLEARMEM:
         for(int i = 0; i < config.context_count; i+=1){
             cym_destroy_context(contexts + i);
@@ -96,27 +87,85 @@ int perform_command(const UserPrompt prompt){
         config.context_count += 1;
         break;
     case USRPROMPT_DELCONTEXT:
+        if(config.context_count < 2) break;
         cym_destroy_context(contexts + config.current_context);
         for(size_t i = config.current_context; i < config.context_count - 1; i+=1){
             contexts[i] = contexts[i + 1];
         }
-        if(config.context_count > 1) config.context_count -= 1;
+        config.context_count -= 1;
         if(config.current_context && config.current_context == config.context_count){
             config.current_context -= 1;
         }
         break;
     case USRPROMPT_CHANGECONTEXT:
-        reg = get_literal(prompt.operand1.as_str);
-        if(reg < 1 || reg > config.context_count){
-            fprintf(stderr, "[ERROR] Can't Change To Non Existing Context '%i'\n", reg);
+        prompt.operand1.as_index = get_literal(prompt.operand1.as_str);
+        if(prompt.operand1.as_index < 1 || prompt.operand1.as_index > config.context_count){
+            fprintf(stderr, "[ERROR] Can't Change To Non Existing Context '%zu'\n", prompt.operand1.as_index);
+            return 2;
+        }
+        config.current_context = prompt.operand1.as_index - 1;
+        break;
+    case USRPROMPT_LOADCONTEXT:
+        if(config.context_count + 1 > config.capacity){
+            CymContext* ncontexts = (CymContext*)malloc((config.context_count + 1) * sizeof(CymContext));
+            memcpy(ncontexts, contexts, config.context_count * sizeof(CymContext));
+            free(contexts);
+            contexts = ncontexts;
+            config.capacity += 1;
+        }
+        contexts[config.context_count] = cym_create_context(10);
+        config.current_context = config.context_count;
+        config.context_count += 1;
+        cym_load_context(contexts + config.current_context, prompt.operand1.as_str);
+        break;
+    case USRPROMPT_SAVECONTEXT:
+        cym_save_context(contexts + config.current_context, prompt.operand1.as_str);
+        break;
+    case USRPROMPT_MERGECONTEXTS:
+        prompt.operand1.as_index = get_literal(prompt.operand1.as_str);
+        if(prompt.operand1.as_index == config.current_context) return 0;
+        if(prompt.operand1.as_index < 1 || prompt.operand1.as_index > config.current_context){
+            fprintf(stderr, "[ERROR] Can't Merge With Non Existing Context '%zu'\n", prompt.operand1.as_index);
             return 3;
         }
-        config.current_context = reg - 1;
+        cym_merge_contexts(contexts + config.current_context, contexts + prompt.operand1.as_index);
+        cym_destroy_context(contexts + prompt.operand1.as_index);
+        for(size_t i = prompt.operand1.as_index; i < config.context_count - 1; i+=1){
+            contexts[i] = contexts[i + 1];
+        }
+        if(config.context_count > 1) config.context_count -= 1;
+        break;
+    case USRPROMPT_ADDCYM:
+        prompt.operand1.as_index = parse_type(prompt.operand1.as_str);
+        prompt.operand3.as_index = get_literal(prompt.operand3.as_str);
+        prompt.operand4.as_index = get_literal(prompt.operand4.as_str);
+        cym_push_data(
+            contexts + config.current_context, prompt.operand2.as_str,
+            (CymAtomType)prompt.operand1.as_index, prompt.operand3.as_index, prompt.operand4.as_index, NULL
+        );
+        break;
+    case USRPROMPT_DELCYM:
+        cym_delete_cymbol(
+            contexts + config.current_context,
+            cym_get_cymbol(
+                contexts + config.current_context,
+                prompt.operand1.as_str
+            )
+        );
+        break;
+    case USRPROMPT_SHOWCYM:
+        cym_display_cymbol(
+            contexts + config.current_context,
+            cym_get_cymbol(
+                contexts + config.current_context,
+                prompt.operand1.as_str
+            )
+        );
         break;
     
     default:
         CLEAR_VIEW;
-        return 1;
+        break;;
     }
 
     return 0;
@@ -128,6 +177,8 @@ int main(int argc, char** argv){
     Mc_token_t* token_buffer = mc_create_token_buffer(100, 1000);
     
     contexts = (CymContext*)malloc(sizeof(CymContext));
+
+    contexts[0] = cym_create_context(1);
 
     if(argc < 2){
 
