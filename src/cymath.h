@@ -17,11 +17,53 @@ extern "C" {
 #define CYM_FLOAT double
 #endif
 
-static inline CYM_FLOAT cym_absf(CYM_FLOAT x){ return x > 0? x : -x; }
-
-
+static inline CYM_FLOAT cym_absf(CYM_FLOAT x);
 // função inverso da raiz quadrada (Quake III) modificada para melhor precisão e funcionalidade multiplataforma
 // para double
+double cym_Q_rsqrt_d(double number);
+// if the norm of vector is 0 the ouput vector will be filled with 0
+CYM_FLOAT cym_normalize_vec(const CYM_FLOAT* vector, unsigned int size, CYM_FLOAT* ouput);
+// It is NOT safe to pass one of the input matrices as output to this funtion
+void cym_mat_transpose(const CYM_FLOAT* input, unsigned int sizex, unsigned int sizey, CYM_FLOAT* output);
+// It is safe to pass one of the input matrices as output to this funtion
+void cym_mat_scale(CYM_FLOAT scalar, const CYM_FLOAT* mat, unsigned int sizex, unsigned int sizey, CYM_FLOAT* output);
+// It is safe to pass one of the input matrices as output to this funtion
+void cym_mat_sum(const CYM_FLOAT* mat1, const CYM_FLOAT* mat2, unsigned int sizex, unsigned int sizey, CYM_FLOAT* output);
+// It is safe to pass one of the input matrices as output to this funtion
+void cym_mat_sub(const CYM_FLOAT* mat1, const CYM_FLOAT* mat2, unsigned int sizex, unsigned int sizey, CYM_FLOAT* output);
+// It is NOT safe to pass one of the input matrices as output to this funtion
+void cym_mat_multiply(const CYM_FLOAT* mat_1, unsigned int mat1_sizex, unsigned int mat1_sizey,const CYM_FLOAT* mat_2, unsigned int mat2_sizex, CYM_FLOAT* output);
+// solves the system a * x = y through gauss method, outputing the result to x
+// this modifies the memory at a and y
+void cym_solve_gauss(CYM_FLOAT* a, CYM_FLOAT* y, unsigned int size, CYM_FLOAT* x);
+// takes a vector and outputs an unitary matrice with its first column proportional to that vector
+// It is safe to pass the input vector as output to this funtion
+// \returns 0 on success or 1 if the input vector is zero (it still writes a 0 matrice to output)
+int cym_make_unitary(const CYM_FLOAT* input, unsigned int size, CYM_FLOAT* output);
+int cym_test_unitary(const CYM_FLOAT* mat, unsigned int size, double accuracy);
+void cym_mat_print(const char* name, const CYM_FLOAT* mat, unsigned int sizex, unsigned int sizey);
+
+// X==============X DATA ANALYSIS X=================X
+
+// performs a polynomial interolation and outputs the coefficients to output in order of smallest power coefficient to biggest
+// \returns 0 on success, 1 otherwise
+int cym_interpol(const CYM_FLOAT* x, const CYM_FLOAT* y, size_t number_of_points, CYM_FLOAT* output);
+// performs a linear fit of the form y = A*x + B
+void cym_linear_fit(const CYM_FLOAT* x, const CYM_FLOAT* y, size_t number_of_points, CYM_FLOAT* a, CYM_FLOAT* b, CYM_FLOAT* r);
+// performs a wheighted linear fit of the form y = A*x + B
+int cym_rlinear_fit(const CYM_FLOAT* x, const CYM_FLOAT* y, const CYM_FLOAT* dx, const CYM_FLOAT* dy, size_t number_of_points, CYM_FLOAT* a, CYM_FLOAT* b, CYM_FLOAT* da, CYM_FLOAT* db ,CYM_FLOAT* r);
+// performs a polynomial fit of the form y = sum_n a_n * x^n
+int cym_poly_fit(const CYM_FLOAT* x, const CYM_FLOAT* y, size_t number_of_points, int order, CYM_FLOAT* output);
+CYM_FLOAT cym_newton_method(CYM_FLOAT (*function)(CYM_FLOAT), CYM_FLOAT guess, CYM_FLOAT value, CYM_FLOAT accuracy, CYM_FLOAT step);
+
+// TODO: void cym_multi_param_fit(CYM_FLOAT* input_data, size_t data_point_count, CYM_FLOAT(*model)(CYM_FLOAT*), CYM_FLOAT* param, size_t param_count);
+
+
+#ifdef CYMATH_IMPLEMENTATION
+
+
+static inline CYM_FLOAT cym_absf(CYM_FLOAT x){ return x > 0? x : -x; }
+
 double cym_Q_rsqrt_d(double number) {
     const double x2 = number * 0.5;
     const double threehalfs = 1.5;
@@ -44,8 +86,6 @@ double cym_Q_rsqrt_d(double number) {
 
 #define cym_sqrt(VALUE) (1.0 / cym_Q_rsqrt_d(VALUE))
 
-
-// if the norm of vector is 0 the ouput vector will be filled with 0
 CYM_FLOAT cym_normalize_vec(const CYM_FLOAT* vector, unsigned int size, CYM_FLOAT* ouput){
     CYM_FLOAT norm2 = 0;
 
@@ -70,7 +110,6 @@ CYM_FLOAT cym_normalize_vec(const CYM_FLOAT* vector, unsigned int size, CYM_FLOA
 
 }
 
-// [WARNING] always pass an output different than the input or this will break
 void cym_mat_transpose(const CYM_FLOAT* input, unsigned int sizex, unsigned int sizey, CYM_FLOAT* output){
     for(unsigned int i = 0; i < sizey; i+=1){
         for(unsigned int j = 0; j < sizex; j+=1){
@@ -121,18 +160,12 @@ void cym_mat_multiply(const CYM_FLOAT* mat_1, unsigned int mat1_sizex, unsigned 
 
 }
 
-// solves the system a * x = y through gauss method, outputing the result to x
-// this modifies the memory at a and y
 void cym_solve_gauss(CYM_FLOAT* a, CYM_FLOAT* y, unsigned int size, CYM_FLOAT* x){
-
-    #ifdef alloca
-    size_t* index = (size_t*)alloca(2 * size * sizeof(size_t));
-    #else
-    size_t* index = (size_t*)malloc(2 * size * sizeof(size_t));
-    #endif
 
     // a variable to store the pivot line
     int64_t t = 0;
+    // stores the number of times a line got sent to the end
+    size_t number_of_swaps = 0;
 
     for(unsigned int m = 0; m < size; m += 1){
         t = -1;
@@ -147,6 +180,8 @@ void cym_solve_gauss(CYM_FLOAT* a, CYM_FLOAT* y, unsigned int size, CYM_FLOAT* x
                 cym_mat_sub(a + n * size, x, size, 1, a + n * size);
                 // y[n] -= y[t] * (a[n][m] / a[t][m])
                 y[n] -= y[t] * scale;
+                // making sure the value at the pivot's column was zerod as it should
+                a[n * size + m] = 0;
 
             } else if(a[n * size + m] != 0){ // otherwise set the pivot
                 t = n;
@@ -175,21 +210,12 @@ void cym_solve_gauss(CYM_FLOAT* a, CYM_FLOAT* y, unsigned int size, CYM_FLOAT* x
         }
     }
 
-    for(unsigned int m = 0; m < size; m += 1){
-        for(unsigned int n = 0; n < size; n += 1){
-            if(a[n * size + m]){
-                x[n] = y[m] / a[n * size + m];
-            }
-        }
+    for(unsigned int i = 0; i < size; i += 1){
+        x[i] = y[i] / a[i * size + i];
     }
 
-    #ifndef alloca
-    free(index);
-    #endif
 }
 
-// takes a vector and outputs an unitary matrice with its first column proportional to that vector
-// \returns 0 on success or 1 if the input vector is zero (it still writes a 0 matrice to output)
 int cym_make_unitary(const CYM_FLOAT* input, unsigned int size, CYM_FLOAT* output){
 
     CYM_FLOAT norm2 = 0.0f;
@@ -292,19 +318,21 @@ int cym_test_unitary(const CYM_FLOAT* mat, unsigned int size, double accuracy){
 
 }
 
-void cym_print_mat(const CYM_FLOAT* mat, unsigned int sizex, unsigned int sizey){
+void cym_mat_print(const char* name, const CYM_FLOAT* mat, unsigned int sizey, unsigned int sizex){
+    if(name) printf("\n%s[%u][%u]:\n\t",name, sizey, sizex);
+    else     printf("\n(NOT NAMED)[%u][%u]:\n\t", sizey, sizex);
+
     for(unsigned int i = 0; i < sizey; i++){
         for(unsigned int j = 0; j < sizex; j++){
             printf("%f, ", mat[i * sizex + j]);
         }
         printf("\n");
     }
+    printf("\n");
 }
 
-// X=======================X (DATA ANALYSIS) X==================X
+// X===============================================X (DATA ANALYSIS) X=================================================X
 
-// performs a polynomial interolation and outputs the coefficients to output in order of smallest power coefficient to biggest
-// \returns 0 on success, 1 otherwise
 int cym_interpol(const CYM_FLOAT* x, const CYM_FLOAT* y, size_t number_of_points, CYM_FLOAT* output){
 
     CYM_FLOAT* a = (CYM_FLOAT*)malloc(number_of_points * number_of_points * sizeof(CYM_FLOAT) + number_of_points * sizeof(CYM_FLOAT));
@@ -328,8 +356,6 @@ int cym_interpol(const CYM_FLOAT* x, const CYM_FLOAT* y, size_t number_of_points
     return 0;
 }
 
-
-// performs a linear fit of the form y = A*x + B
 void cym_linear_fit(const CYM_FLOAT* x, const CYM_FLOAT* y, size_t number_of_points, CYM_FLOAT* a, CYM_FLOAT* b, CYM_FLOAT* r){
 
     CYM_FLOAT sumx  = 0;
@@ -354,7 +380,6 @@ void cym_linear_fit(const CYM_FLOAT* x, const CYM_FLOAT* y, size_t number_of_poi
     *r = ar_numerador * cym_Q_rsqrt_d((number_of_points * sumy2 - sumy * sumy) * a_denominador);
 }
 
-// performs a wheighted linear fit of the form y = A*x + B
 int cym_rlinear_fit(const CYM_FLOAT* x, const CYM_FLOAT* y, const CYM_FLOAT* dx, const CYM_FLOAT* dy,
         size_t number_of_points, CYM_FLOAT* a, CYM_FLOAT* b, CYM_FLOAT* da, CYM_FLOAT* db ,CYM_FLOAT* r){
 
@@ -425,6 +450,188 @@ int cym_rlinear_fit(const CYM_FLOAT* x, const CYM_FLOAT* y, const CYM_FLOAT* dx,
 
     return 0;
 }
+
+/*
+    x0, x1, x2, x3 = x0y
+    x1, x2, x3, x4 = x1y
+    x2, x3, x4, x5 = x2y
+    x3, x4, x5, x6 = x3y
+*/
+int cym_poly_fit(const CYM_FLOAT* x, const CYM_FLOAT* y, size_t number_of_points, int order, CYM_FLOAT* output){
+
+    const int columns = order + 1;
+    const int rows    = order + 1;
+
+    CYM_FLOAT* system = (CYM_FLOAT*)malloc(
+        (order + 1) * (order + 1) * sizeof(CYM_FLOAT) + number_of_points * sizeof(CYM_FLOAT)
+    );
+    CYM_FLOAT* y__ = system + number_of_points * number_of_points;
+
+    for(size_t m = 1; m < columns; m+=1){
+        system[m] = 0;
+    }
+
+    for(size_t n = 0; n < rows; n+=1){
+        system[n * columns + (columns - 1)] = 0;
+    }
+
+    y__[0] = 0;
+
+    for(size_t i = 0; i < number_of_points; i+=1){
+
+        const CYM_FLOAT yi = y[i];
+
+        CYM_FLOAT xi = x[i];
+
+        y__[0] += yi;
+
+        for(size_t m = 1; m < columns; m+=1){
+
+            y__[m] += xi * yi;
+
+            system[m] += xi;
+            xi *= x[i];
+
+        }
+
+        for(size_t n = 1; n < rows; n+=1){
+            system[n * columns + (columns - 1)] += xi;
+            xi *= x[i];
+        }
+
+    }
+
+    system[0] = number_of_points;
+
+    for(size_t n = 1; n < rows; n+=1){
+        for(size_t m = 0; m < columns - 1; m+=1){
+
+            system[n * columns + m] = system[(n - 1) * columns + (m + 1)];
+
+        }
+    }
+
+    cym_solve_gauss(system, y__, order + 1, output); 
+
+    free(system);
+
+    return 0;
+}
+
+
+CYM_FLOAT cym_newton_method(CYM_FLOAT (*function)(CYM_FLOAT), CYM_FLOAT guess, CYM_FLOAT value, CYM_FLOAT accuracy, CYM_FLOAT step){
+    
+    const int max_iterations = 1000;
+
+    int i = 0;
+
+    CYM_FLOAT fx = function(guess) - value;
+
+    while (CYM_ABS(fx) > accuracy && i < max_iterations){
+
+        const CYM_FLOAT dfx = function(guess + step) - value - fx;
+
+        guess = guess - fx / dfx;
+
+        fx = function(guess) - value;
+
+        i += 1;
+    }
+    
+    
+    return guess;
+}
+
+/* TODO:
+typedef struct CYM_IMAT
+{
+    CYM_FLOAT* data;
+    size_t     rows;
+    size_t     columns;
+    size_t     stride;
+} CYM_IMAT;
+
+
+static inline void cym_smatmul(const CYM_IMAT mat1, const CYM_IMAT mat2, CYM_FLOAT* output){
+
+    for(size_t i = 0; i < mat1.rows; i+=1){
+        for(size_t j = 0; j < mat2.columns; j+=1){
+            output[i * mat2.columns + j] = 0;
+            for(size_t n = 0; n < mat1.columns; n+=1){
+                output[i * mat2.columns + j] += mat1.data[i * mat1.stride + n] * mat2.data[n * mat2.stride + j];
+            }
+        }
+    }
+
+}
+*/
+/* TODO:
+void cym_multi_param_fit(CYM_FLOAT* input_data, size_t data_point_count,
+    CYM_FLOAT(*model)(CYM_FLOAT*), CYM_FLOAT* param, size_t param_count){
+
+    CYM_FLOAT cost;
+
+    const CYM_FLOAT accuracy = 1e-6, step = 1e-6;
+
+    CYM_FLOAT* output = (CYM_FLOAT*)malloc((data_point_count + param_count) * sizeof(CYM_FLOAT));
+    CYM_FLOAT* grad   = output + data_point_count;
+
+    CYM_IMAT w = (CYM_IMAT){
+        .data    = param,
+        .rows    = param_count,
+        .columns = 1,
+        .stride  = 1
+    };
+    CYM_IMAT x = (CYM_IMAT){
+        .data    = input_data,
+        .rows    = data_point_count,
+        .columns = param_count,
+        .stride  = param_count + 1
+    };
+    CYM_IMAT y = (CYM_IMAT){
+        .data   = input_data + param_count,
+        .rows   = data_point_count, .columns = 1,
+        .stride = param_count + 1
+    };
+
+    int i = 0;
+
+    do {
+        
+        cym_smatmul(x, w, output);
+
+        cost = 0;
+        for(size_t i = 0; i < data_point_count; i+=1){
+            cost += (output[i] - y.data[i * y.stride]) * (output[i] - y.data[i * y.stride]);
+        }
+
+        for(size_t i = 0; i < param_count; i+=1){
+            const CYM_FLOAT oparam = param[i];
+
+            param[i] += step;
+
+            cym_smatmul(x, w, output);
+
+            CYM_FLOAT ncost = 0;
+            for(size_t i = 0; i < data_point_count; i+=1){
+                ncost += (output[i] - y.data[i * y.stride]) * (output[i] - y.data[i * y.stride]);
+            }
+            param[i] = oparam;
+
+            grad[i] = (ncost - cost) / step;
+        }
+        for(size_t i = 0; i < param_count; i+=1){
+            param[i] += grad[i];
+        }        
+
+    } while (cost > accuracy && i++ < 1000);
+    
+    free(output);
+
+}
+*/
+
+#endif // ======================== END OF FUNCTION IMPLEMENTATIONS =========================
 
 
 #ifdef __cplusplus

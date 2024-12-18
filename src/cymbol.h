@@ -7,12 +7,15 @@
 #include <stdint.h>
 #include <inttypes.h>
 
+// TODO: add 2 byte character support for plain text cymbol type
+
+
 // X=================X (START) X========================X
 
 enum CymMemBlock{
 
     CYM_MEMBLOCK_SYMBOLS = 0x53594d,
-    CYM_MEMBLOCK_DATA    = 44415441
+    CYM_MEMBLOCK_DATA    = 0x44415441
 
 };
 
@@ -31,7 +34,12 @@ typedef enum CymAtomType{
     CYM_UINT64,
 
     CYM_FLOAT32,
-    CYM_FLOAT64
+    CYM_FLOAT64,
+
+    CYM_CHAR,
+    // TODO: 2 byte character
+    CYM_CHAR2,
+    CYM_RAW_BYTES,
 
 } CymAtomType;
 
@@ -43,17 +51,19 @@ typedef enum CymbolType{
     CYM_VECTOR,
     CYM_MATRICE,
 
+    CYM_PLAIN_TEXT,
+    CYM_RAW
+
 } CymbolType;
 
 typedef struct CymbolMetaData{
 
-    uint8_t     atom_type;
-    uint8_t     type;
-    uint64_t    size1;
-    uint64_t    size2;
+    uint8_t  atom_type;
+    uint8_t  type;
+    uint32_t size1;
+    uint32_t size2;
 
 } CymbolMetaData;
-
 
 typedef struct CymStream{
     // data buffer
@@ -87,6 +97,45 @@ extern "C" {
 #endif
 
 // X=================X (CORE FUNCTIONALITY) X========================X
+
+CymContext cym_create_context(uint64_t init_cap);
+void cym_destroy_context(CymContext* context);
+static inline int cym_compare_str(const char* str1, const char* str2);
+void cym_stream(CymStream* stream, const void* data, uint64_t size);
+void cym_stream_str(CymStream* stream, const char* str);
+#define CYM_STRM_GET(STREAM, TYPE, INDEX) *(TYPE*)(STREAM.data + INDEX * sizeof(TYPE))
+
+
+static inline uint64_t cym_get_atom_size(uint8_t atom_type);
+// returns the id of the newly allocated cymbol
+// if size == 0 nothing will happen
+// if data == NULL the memory will be allocated but not set
+uint64_t cym_push_dataRW(CymContext* context, const char* name, uint64_t size, const void* data);
+// returns the id of the newly allocated cymbol
+// if size1 * size2 == 0 nothing will happen
+// if data == NULL the memory will be allocated but not set
+uint64_t cym_push_data(CymContext* context, const char* name, CymAtomType atom_type, uint64_t size1, uint64_t size2, const void* data);
+// returns the id of the newly allocated cymbol
+uint64_t cym_push_str(CymContext* context, const char* name, const char* str);
+// you can't delete the 0th cymbol, just so you know
+void cym_delete_cymbol(CymContext* context, uint64_t cymbolid);
+uint64_t cym_get_cymbol(CymContext* context, const char* name);
+// Keep in mind that the pointers are only valid untill the context's data stream has its layout/memory changed,
+// meaning you should not rely on them after the next call to cym_delete_cymbol, cym_push_data, cym_push_str, 
+// cym_load_context, cym_push_dataRW or cym_merge_contexts is made.
+// \returns a pointer to the raw data of the cymbol with id cymbolid
+// \param meta_data a pointer to write the meta data to, pass NULL to ignore this
+// \param name a pointer to the C_string to write the cymbol's name, pass NULL to ignore this
+void* cym_get_cymbol_data(CymContext* context, CymbolMetaData* meta_data, const char** name, uint64_t cymbolid);
+void cym_transfer_data(CymContext* context, uint64_t cymbolid, CymbolMetaData* meta_data, void* data);
+// pass output = NULL to write the output to the same cymbol's data
+void cym_apply_fun(CymContext* context, uint64_t cymbolid, void* function, void* output);
+void cym_display_cymbol(CymContext* context, uint64_t cymbolid);
+void cym_merge_contexts(CymContext* dest, CymContext* src);
+int cym_save_context(CymContext* context, const char* path);
+int cym_load_context(CymContext* context, const char* path);
+
+#ifdef CYM_IMPLEMENTATION
 
 CymContext cym_create_context(uint64_t init_cap){
     CymContext output;
@@ -137,17 +186,18 @@ void cym_stream_str(CymStream* stream, const char* str){
     cym_stream(stream, str, size + 1);
 }
 
-#define CYM_STRM_GET(STREAM, TYPE, INDEX) *(TYPE*)(STREAM.data + INDEX * sizeof(TYPE))
-
 
 static inline uint64_t cym_get_atom_size(uint8_t atom_type){
     switch (atom_type)
     {
     case CYM_INT8:
     case CYM_UINT8:
+    case CYM_CHAR:
+    case CYM_RAW_BYTES:
         return 1;
     case CYM_INT16:
     case CYM_UINT16:
+    case CYM_CHAR2:
         return 2;
     case CYM_INT32:
     case CYM_UINT32:
@@ -162,6 +212,48 @@ static inline uint64_t cym_get_atom_size(uint8_t atom_type){
         break;
     }
     return 0;
+}
+
+// returns the id of the newly allocated cymbol
+// if size == 0 nothing will happen
+// if data == NULL the memory will be allocated but not set
+uint64_t cym_push_dataRW(CymContext* context, const char* name, uint64_t size, const void* data){
+    if(size == 0){
+        return 0;
+    }
+
+    Cymbol cymbol;
+    CymbolMetaData meta_data;
+    meta_data.atom_type = CYM_RAW_BYTES;
+    meta_data.size1 = 1;
+    meta_data.size2 = size;
+
+    cymbol.str = context->data.size;
+    cym_stream_str(&context->data, name);
+    cymbol.data = context->data.size;
+
+    cym_stream(&context->symbols, &cymbol, sizeof(Cymbol));
+
+    uint64_t meta_size = sizeof(meta_data);
+
+    cym_stream(&context->data, &meta_size, sizeof(uint64_t));
+
+    cym_stream(&context->data, &meta_data, sizeof(meta_data));
+    
+    if(data) cym_stream(&context->data, data, size);
+    else{
+        const size_t memsize = size;
+        if(context->data.size + memsize > context->data.capacity){
+            char* old_data = context->data.data;
+            context->data.capacity *= 1 + (uint64_t)((memsize + context->data.size) / context->data.capacity);
+            context->data.data = (char*)malloc(context->data.capacity);
+            memcpy(context->data.data, old_data, context->data.size);
+            free(old_data);
+        }
+        context->data.size += memsize;
+    }
+
+    return (context->symbols.size / sizeof(Cymbol)) - 1;
 }
 
 // returns the id of the newly allocated cymbol
@@ -214,6 +306,33 @@ uint64_t cym_push_data(CymContext* context, const char* name, CymAtomType atom_t
     return (context->symbols.size / sizeof(Cymbol)) - 1;
 }
 
+// returns the id of the newly allocated cymbol
+uint64_t cym_push_str(CymContext* context, const char* name, const char* str){
+
+    Cymbol cymbol;
+    CymbolMetaData meta_data;
+    meta_data.atom_type = CYM_CHAR;
+    meta_data.size1 = 0;
+    meta_data.size2 = 0;
+    meta_data.type = CYM_PLAIN_TEXT;
+
+    cymbol.str = context->data.size;
+    cym_stream_str(&context->data, name);
+    cymbol.data = context->data.size;
+
+    cym_stream(&context->symbols, &cymbol, sizeof(Cymbol));
+
+    uint64_t meta_size = sizeof(meta_data);
+
+    cym_stream(&context->data, &meta_size, sizeof(uint64_t));
+
+    cym_stream(&context->data, &meta_data, sizeof(meta_data));
+
+    cym_stream_str(&context->data, str);
+
+    return (context->symbols.size / sizeof(Cymbol)) - 1; 
+}
+
 // you can't delete the 0th cymbol, just so you know
 void cym_delete_cymbol(CymContext* context, uint64_t cymbolid){
 
@@ -259,7 +378,9 @@ uint64_t cym_get_cymbol(CymContext* context, const char* name){
     return 0;
 }
 
-// Keep in mind that the pointers are only valid untill the context's data stream has its capacity resized
+// Keep in mind that the pointers are only valid untill the context's data stream has its layout/memory changed,
+// meaning you should not rely on them after the next call to cym_delete_cymbol, cym_push_data, cym_push_str, 
+// cym_load_context, cym_push_dataRW or cym_merge_contexts is made.
 // \returns a pointer to the raw data of the cymbol with id cymbolid
 // \param meta_data a pointer to write the meta data to, pass NULL to ignore this
 // \param name a pointer to the C_string to write the cymbol's name, pass NULL to ignore this
@@ -342,7 +463,17 @@ void cym_apply_fun(CymContext* context, uint64_t cymbolid, void* function, void*
     case CYM_FLOAT64:
         CYM_INTERNAL_APPLY_FUN(double, meta_data.size1 * meta_data.size2);
         break;
-    
+    case CYM_CHAR:
+        if(meta_data.type == CYM_PLAIN_TEXT){
+            for(size_t i = 0; data[i]; i+=1)
+                data[i] = ((char(*)(char))(function))(data[i]);
+            break;
+        }
+    case CYM_RAW_BYTES:
+        CYM_INTERNAL_APPLY_FUN(char, meta_data.size1 * meta_data.size2);
+        break;
+    // TODO: 2 byte character
+    case CYM_CHAR2:
     default:
         break;
     }
@@ -369,7 +500,7 @@ void cym_display_cymbol(CymContext* context, uint64_t cymbolid){
     #define CYM_INTERNAL_PRINTEX(ATOM_TYPE, FORMAT, SIZE1, SIZE2, DATA)\
     printf(\
         "\tatom type: " #ATOM_TYPE "\n"\
-        "\tsize = (%zu, %zu)\n\t",\
+        "\tsize = (%" PRIu32 ", %" PRIu32 ")\n\t",\
         SIZE1, SIZE2\
     );\
     for(uint64_t n = 0; n < SIZE1; n+=1){\
@@ -413,7 +544,19 @@ void cym_display_cymbol(CymContext* context, uint64_t cymbolid){
     case CYM_FLOAT64:
         CYM_INTERNAL_PRINTEX(double, "f", meta_data.size1, meta_data.size2, data);
         break;
+    case CYM_CHAR:
+        if(meta_data.type == CYM_PLAIN_TEXT){
+            printf("\tatom type: char\n\tplain text:\n%s\n", (char*)data);
+            break;
+        }
+        CYM_INTERNAL_PRINTEX(char, "c", meta_data.size1, meta_data.size2, data);
+        break;
+    case CYM_RAW_BYTES:
+        CYM_INTERNAL_PRINTEX(uint8_t, "02x", meta_data.size1, meta_data.size2, data);
+        break;
     
+    // TODO:
+    case CYM_CHAR2:   
     default:
         break;
     }
@@ -543,6 +686,8 @@ int cym_load_context(CymContext* context, const char* path){
         return -1;
 
 }
+
+#endif
 
 #ifdef __cplusplus
 }

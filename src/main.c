@@ -1,3 +1,5 @@
+#define CYM_IMPLEMENTATION
+#define CYMATH_IMPLEMENTATION
 #include "cymbol.h"
 #include "cymath.h"
 #include "parser.h"
@@ -217,7 +219,7 @@ int main(int argc, char** argv){
 
         token_count += mc_tokenize(
             &token_buffer, token_count,
-            argv[i], "", "-", ""
+            argv[i], NULL, "-", ""
         );
 
     }
