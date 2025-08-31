@@ -56,7 +56,7 @@ int cym_rlinear_fit(const CYM_FLOAT* x, const CYM_FLOAT* y, const CYM_FLOAT* dx,
 int cym_poly_fit(const CYM_FLOAT* x, const CYM_FLOAT* y, size_t number_of_points, int order, CYM_FLOAT* output);
 CYM_FLOAT cym_newton_method(CYM_FLOAT (*function)(CYM_FLOAT), CYM_FLOAT guess, CYM_FLOAT value, CYM_FLOAT accuracy, CYM_FLOAT step);
 
-// TODO: void cym_multi_param_fit(CYM_FLOAT* input_data, size_t data_point_count, CYM_FLOAT(*model)(CYM_FLOAT*), CYM_FLOAT* param, size_t param_count);
+void cym_minimize(CYM_FLOAT* input_data, size_t data_point_count, CYM_FLOAT(*model)(CYM_FLOAT*), CYM_FLOAT* param, size_t param_count);
 
 
 #ifdef CYMATH_IMPLEMENTATION
@@ -339,7 +339,9 @@ int cym_interpol(const CYM_FLOAT* x, const CYM_FLOAT* y, size_t number_of_points
 
     CYM_FLOAT* y_ = a + number_of_points * number_of_points;
 
-    memcpy(y_, y, number_of_points * sizeof(CYM_FLOAT));
+    for(size_t i = 0; i < number_of_points; i+=1){
+        y_[i] = y[i];
+    }
 
     for(size_t i = 0; i < number_of_points; i+=1){
         a[i * number_of_points] = 1.0;
