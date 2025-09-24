@@ -184,7 +184,7 @@ CYMDEF const char* cym_cymbol_type_str(int cymbol_type);
 */
 CYMDEF void* _cym_pack_data(void* dest, ...);
 
-#define cym_pack_data(dest, ...) _cym_pack_data(dest, __VA_ARGS__, (size_t) 0, NULL)
+#define cym_pack_data(dest, ...) _cym_pack_data(dest, __VA_ARGS__, (size_t) 0)
 
 /*
     Takes a pointer to a chunk of data (src) and unpacks/reads sub chunks of specified sizes to specified pointers.
@@ -196,7 +196,7 @@ CYMDEF void* _cym_pack_data(void* dest, ...);
 */
 CYMDEF void* _cym_unpack_data(const void* src, ...);
 
-#define cym_unpack_data(src, ...) _cym_unpack_data(src, __VA_ARGS__, (size_t) 0, NULL)
+#define cym_unpack_data(src, ...) _cym_unpack_data(src, __VA_ARGS__, (size_t) 0)
 
 /*
     Packs a sequence of values into dest.
@@ -215,12 +215,12 @@ CYMDEF void* cym_unpack_values(const void* src, const char* __format, ...);
 // same as cym_unpack_data, but for unpacking from a stream
 CYMDEF size_t _cym_sunpack_data(void* stream, size_t(*stream_read)(void* dest, size_t _size, size_t n, void* stream), ...);
 
-#define cym_sunpack_data(stream, stream_read, ...) _cym_sunpack_data(stream, stream_read, __VA_ARGS__, (size_t) 0, NULL)
+#define cym_sunpack_data(stream, stream_read, ...) _cym_sunpack_data(stream, stream_read, __VA_ARGS__, (size_t) 0)
 
 // same as cym_unpack_data, but for packing to a stream
 CYMDEF size_t _cym_spack_data(void* stream, size_t(*stream_write)(const void* src, size_t _size, size_t n, void* stream), ...);
 
-#define cym_spack_data(stream, stream_write, ...) _cym_spack_data(stream, stream_write, __VA_ARGS__, (size_t) 0, NULL)
+#define cym_spack_data(stream, stream_write, ...) _cym_spack_data(stream, stream_write, __VA_ARGS__, (size_t) 0)
 
 // same as cym_unpack_values, but for unpacking from a stream
 CYMDEF size_t cym_sunpack_values(void* stream, size_t(*stream_read)(void* dest, size_t _size, size_t n, void* stream),
