@@ -679,7 +679,7 @@ static int perform_prompt(FILE* f, FILE* outputf, int cmd, int prompt_argc, char
                 printf("no command %s\n", prompt_argv[i]);
                 continue;
             }
-            if(help(i)){
+            if(help(what)){
                 fprintf(stderr, "[ERROR] help is missing %i cmd, aka '%s'\n", i, prompt_argv[i]);
                 return 1;
             }
