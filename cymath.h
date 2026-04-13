@@ -17,7 +17,7 @@ extern "C" {
 #define CYM_FLOAT double
 #endif
 
-static inline CYM_FLOAT cym_absf(CYM_FLOAT x);
+CYM_FLOAT cym_absf(CYM_FLOAT x);
 // função inverso da raiz quadrada (Quake III) modificada para melhor precisão e funcionalidade multiplataforma
 // para double
 double cym_Q_rsqrt_d(double number);
@@ -62,7 +62,7 @@ void cym_minimize(CYM_FLOAT* input_data, size_t data_point_count, CYM_FLOAT(*mod
 #ifdef CYMATH_IMPLEMENTATION
 
 
-static inline CYM_FLOAT cym_absf(CYM_FLOAT x){ return x > 0? x : -x; }
+CYM_FLOAT cym_absf(CYM_FLOAT x){ return x > 0? x : -x; }
 
 double cym_Q_rsqrt_d(double number) {
     const double x2 = number * 0.5;
