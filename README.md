@@ -17,5 +17,4 @@ toc.c:
     executable that writes images in .c format (needs std_image.h)
 
 pythum.py:
-    simple library for simple quantum circuit building and simulation (ongoing)
-    TODO: implement multi conditional and multi target gates
+    simple library for simple quantum circuit building and simulation, check QuantumCircuit class in file for example usage (not optimized)
