@@ -1,11 +1,8 @@
 #ifndef CYMPAGE_HEADER
 #define CYMPAGE_HEADER
 
-#include <stdint.h>
-#include <inttypes.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdio.h>
 
 
 #define CYM_DEFAULT_PAGE_CAPACITY (1000*1000)
@@ -15,8 +12,8 @@ typedef struct CymPage CymPage;
 
 typedef struct CymPage
 {
-    uint64_t capacity;
-    uint64_t size;
+    size_t capacity;
+    size_t size;
     CymPage* last;
     CymPage* next;
 } CymPage;
@@ -29,7 +26,7 @@ extern "C" {
 // allocates a new page with a given capacity and preallocated page_data of size bytes
 // and puts it between pages last and next
 // \returns a pointer to the allocated page on success or NULL on failure
-CymPage* cym_alloc_page(uint64_t capacity, uint64_t size, const void* page_data, CymPage* last, CymPage* next);
+CymPage* cym_alloc_page(size_t capacity, size_t size, const void* page_data, CymPage* last, CymPage* next);
 
 // frees a page properly connecting its last and next pages so as to not disorganize anything
 void cym_free_page(CymPage* page);
@@ -44,9 +41,9 @@ void* cym_page_read(const CymPage* page, void* dest, size_t pos, size_t size);
 void* cym_page_alloc(CymPage* page, const void* data, size_t size);
 
 // deallocates size bytes from the end to start of the linked list of pages
-// \param free indicates if a page's memory should be freed once the page is empty (0 to not free otherwise free)
+// \param _free indicates if a page's memory should be freed once the page is empty (0 to not free otherwise free)
 // \returns the last page in the linked list on success or NULL on failure
-CymPage* cym_page_dealloc(CymPage* page, size_t size, int free);
+CymPage* cym_page_dealloc(CymPage* page, size_t size, int _free);
 
 // allocates new pages with at least min_page_capacity and at most max_page_capacity untill reserve_size can be allocated by cym_page_alloc
 // \returns the reserved size (0 on failure)
@@ -57,7 +54,7 @@ size_t cym_page_reserve(CymPage* page, size_t reserve_size, size_t min_page_capa
 #ifdef CYMPAGE_IMPLEMENTATION
 
 
-CymPage* cym_alloc_page(uint64_t capacity, uint64_t size, const void* page_data, CymPage* last, CymPage* next){
+CymPage* cym_alloc_page(size_t capacity, size_t size, const void* page_data, CymPage* last, CymPage* next){
 
     if(size > capacity){
         return NULL;
@@ -78,7 +75,7 @@ CymPage* cym_alloc_page(uint64_t capacity, uint64_t size, const void* page_data,
         return NULL;
     }
 
-    if(!memcpy((uint8_t*)(data) + sizeof(new_page), page_data, size) && size){
+    if(!memcpy((char*)(data) + sizeof(new_page), page_data, size) && size){
         free(data);
         return NULL;
     }
@@ -117,8 +114,8 @@ void* cym_page_read(const CymPage* page, void* dest, size_t pos, size_t size){
 
     while(page && size && test){
         size_t read = (pos + size < page->capacity)? size : page->capacity - pos;
-        test = memcpy(dest, (uint8_t*)(page + 1) + pos, read);
-        dest = (uint8_t*)(dest) + read;
+        test = memcpy(dest, (char*)(page + 1) + pos, read);
+        dest = (char*)(dest) + read;
         size -= read;
         page = page->next;
     }
@@ -135,7 +132,7 @@ void* cym_page_alloc(CymPage* page, const void* data, size_t size){
         page = page->next;
     }
     
-    const void* const memblock_start = (void*) ((uint8_t*)(page + 1) + page->size);
+    const void* const memblock_start = (void*) ((char*)(page + 1) + page->size);
 
     // dummy pointer used to later test if all memcpy succeded
     // by first setting it to page it also tests whether page == NULL
@@ -145,8 +142,8 @@ void* cym_page_alloc(CymPage* page, const void* data, size_t size){
 
     while(page && size && test){
         const size_t written = (page->capacity - page->size < size)? page->capacity - page->size : size;
-        test = memcpy((uint8_t*)(page + 1) + page->size, data, written);
-        data = (uint8_t*)(data) + written;
+        test = memcpy((char*)(page + 1) + page->size, data, written);
+        data = (char*)(data) + written;
         page->size += written;
         size -= written;
         last_page = page;
@@ -157,13 +154,13 @@ void* cym_page_alloc(CymPage* page, const void* data, size_t size){
         return memblock_start;
     }
     // failure
-    while (!((uint8_t*)(last_page + 1) + last_page->capacity > memblock_start && last_page < memblock_start))
+    while (!((char*)(last_page + 1) + last_page->capacity > memblock_start && last_page < memblock_start))
     {
         last_page->size = 0;
         last_page = last_page->last;
     }
 
-    last_page->size = (uint64_t) ((uint8_t*)(memblock_start) - (uint8_t*)(last_page + 1));
+    last_page->size = (size_t) ((char*)(memblock_start) - (char*)(last_page + 1));
     
     return NULL;
 }
@@ -171,35 +168,6 @@ void* cym_page_alloc(CymPage* page, const void* data, size_t size){
 size_t cym_page_reserve(CymPage* page, size_t reserve_size, size_t min_page_capacity, size_t max_page_capacity){
 
     
-
-}
-
-
-void* cym_alloc_cymbol(CymPage* page, int cymbol_id, const void* data, size_t size){
-
-    Cymbol cymbol = (Cymbol){.cymbol_id = cymbol_id, .size = size};
-
-    const size_t reserve_size = sizeof(cymbol.cymbol_id) + sizeof(cymbol.size) + size;
-
-    if(cym_page_reserve(page, reserve_size, 1000, 1000*1000) != reserve_size){
-        return NULL;
-    }
-
-    const void* const output = cym_page_alloc(page, &cymbol.cymbol_id, sizeof(cymbol.cymbol_id));
-
-    if(!output) return NULL;
-
-    if(!cym_page_alloc(page, &cymbol.size, sizeof(cymbol.size))){
-        cym_page_dealloc(page, sizeof(cymbol.cymbol_id), 1);
-        return NULL;
-    }
-
-    if(!cym_page_alloc(page, data, size)){
-        cym_page_dealloc(page, sizeof(cymbol.size) + sizeof(cymbol.size), 1);
-        return NULL;
-    }
-
-    return output;
 
 }
 
