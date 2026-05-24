@@ -9,7 +9,7 @@
                 "-g",
                 "${file}",
                 "-o",
-                "${fileDirname}/${fileBasenameNoExtension}"
+                "${workspaceFolder}/ignore/a.out"
             ],
             "options": {
                 "cwd": "${fileDirname}"
